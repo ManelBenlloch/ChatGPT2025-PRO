@@ -1,0 +1,2 @@
+# ChatGPT2025-PRO
+Directorio de CODEX para CHAT-GPT-5-PRO 2025
