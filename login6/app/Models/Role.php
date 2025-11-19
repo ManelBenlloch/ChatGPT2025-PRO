@@ -71,6 +71,9 @@ class Role extends Model {
     /**
      * Actualizar un rol
      * 
+     * PROTECCIÓN: No permite actualizar roles del sistema (root, admin, personal, user)
+     * Estos 4 roles son INTOCABLES y no pueden ser modificados, renombrados ni desactivados
+     * 
      * @param int $roleId
      * @param array $data
      * @return bool
@@ -89,6 +92,9 @@ class Role extends Model {
 
     /**
      * Eliminar un rol personalizado
+     * 
+     * PROTECCIÓN: No permite eliminar roles del sistema (root, admin, personal, user)
+     * Tampoco permite eliminar roles que tengan usuarios asignados
      * 
      * @param int $roleId
      * @return bool
@@ -167,6 +173,9 @@ class Role extends Model {
 
     /**
      * Asignar permisos a un rol
+     * 
+     * PROTECCIÓN: No permite asignar permisos a roles del sistema (root, admin, personal, user)
+     * Los permisos de roles del sistema se gestionan solo desde la base de datos o panel root
      * 
      * @param int $roleId
      * @param array $permissionIds
