@@ -163,16 +163,36 @@ class ApiController extends Controller {
             $this->jsonError('El email ya está registrado', 400);
         }
         
-        // Crear usuario
-        $newUserId = $this->userModel->create([
+        // PROTECCIÓN: Solo root puede crear usuarios con rol 'root'
+        $roleToAssign = $input['role'] ?? 'user';
+        if ($roleToAssign === 'root' && $user->role !== 'root') {
+            $this->jsonError('Solo el usuario root puede crear otros usuarios root', 403);
+        }
+        
+        // Preparar datos del usuario
+        $userData = [
             'fullname' => $input['fullname'],
             'username' => $input['username'],
             'alias' => $input['alias'] ?? $input['username'],
             'email' => $input['email'],
             'password_hash' => password_hash($input['password'], PASSWORD_BCRYPT),
-            'role' => $input['role'] ?? 'user',
             'email_verified' => 1 // Auto-verificado por admin
-        ]);
+        ];
+        
+        // Asignar rol: puede ser un rol del sistema (role) o un rol personalizado (role_id)
+        // Solo uno de los dos debe estar asignado
+        if (isset($input['role_id']) && $input['role_id']) {
+            // Rol personalizado
+            $userData['role_id'] = $input['role_id'];
+            $userData['role'] = 'user'; // Default para usuarios con rol personalizado
+        } else {
+            // Rol del sistema
+            $userData['role'] = $roleToAssign;
+            $userData['role_id'] = null;
+        }
+        
+        // Crear usuario
+        $newUserId = $this->userModel->create($userData);
         
         // Registrar en activity log
         $this->activityLog->log($userId, 'user_created_via_api', "Usuario creado vía API: {$input['email']}", ['new_user_id' => $newUserId]);
@@ -192,20 +212,55 @@ class ApiController extends Controller {
             $this->jsonError('No tienes permisos para esta acción', 403);
         }
         
+        // Obtener usuario a actualizar
+        $targetUser = $this->userModel->findById($id);
+        if (!$targetUser) {
+            $this->jsonError('Usuario no encontrado', 404);
+        }
+        
+        // PROTECCIÓN: Admin no puede modificar usuarios root
+        if ($targetUser->role === 'root' && $user->role !== 'root') {
+            $this->jsonError('Solo el usuario root puede modificar otros usuarios root', 403);
+        }
+        
         // Obtener datos JSON
         $input = json_decode(file_get_contents('php://input'), true);
         
         // Campos permitidos para actualizar
         $allowedFields = ['fullname', 'username', 'alias'];
         if (in_array($user->role, ['admin', 'root'])) {
-            $allowedFields[] = 'role';
             $allowedFields[] = 'is_active';
+            
+            // Solo root puede cambiar el rol a 'root'
+            if ($user->role === 'root') {
+                $allowedFields[] = 'role';
+                $allowedFields[] = 'role_id';
+            } else {
+                // Admin puede cambiar roles excepto asignar 'root'
+                if (isset($input['role']) && $input['role'] !== 'root') {
+                    $allowedFields[] = 'role';
+                }
+                if (isset($input['role_id'])) {
+                    $allowedFields[] = 'role_id';
+                }
+            }
         }
         
         $updateData = [];
         foreach ($allowedFields as $field) {
             if (isset($input[$field])) {
                 $updateData[$field] = $input[$field];
+            }
+        }
+        
+        // VALIDACIÓN: Asegurarse de que solo se asigne role O role_id, no ambos
+        if (isset($updateData['role']) && isset($updateData['role_id'])) {
+            // Si se proporciona role_id, limpiar role (dejarlo en user por defecto)
+            if ($updateData['role_id']) {
+                $updateData['role'] = 'user';
+            } else {
+                // Si role_id es null, limpiar role_id
+                $updateData['role_id'] = null;
             }
         }
         
@@ -237,6 +292,17 @@ class ApiController extends Controller {
         // No permitir auto-eliminación
         if ($userId == $id) {
             $this->jsonError('No puedes eliminar tu propia cuenta', 400);
+        }
+        
+        // Obtener usuario a eliminar
+        $targetUser = $this->userModel->findById($id);
+        if (!$targetUser) {
+            $this->jsonError('Usuario no encontrado', 404);
+        }
+        
+        // PROTECCIÓN: Admin no puede eliminar usuarios root
+        if ($targetUser->role === 'root' && $user->role !== 'root') {
+            $this->jsonError('Solo el usuario root puede eliminar otros usuarios root', 403);
         }
         
         // Soft delete
