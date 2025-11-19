@@ -1,0 +1,32 @@
+# .htaccess
+# 
+# Configuración de Apache para Rutas Limpias
+# 
+# Este archivo redirige todas las peticiones al index.php
+# para que el Router pueda manejarlas.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # NO especificar RewriteBase - Apache lo detectará automáticamente
+    # Esto hace que el sistema funcione en CUALQUIER carpeta sin modificar código
+
+    # Permitir acceso directo a archivos CSS, JS e imágenes
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteCond %{REQUEST_URI} \.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ [NC]
+    RewriteRule ^ - [L]
+
+    # Redirigir todas las demás peticiones al index.php
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Deshabilitar el listado de directorios
+Options -Indexes
+
+# Configuración de seguridad
+<FilesMatch "\.(htaccess|htpasswd|ini|log|sh|sql)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
