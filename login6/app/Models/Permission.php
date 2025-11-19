@@ -81,6 +81,12 @@ class Permission extends Model {
     /**
      * Verificar si un usuario tiene un permiso específico
      * 
+     * LÓGICA DE PERMISOS:
+     * 1. Si el usuario tiene role='root', tiene TODOS los permisos automáticamente
+     * 2. Si el usuario tiene role_id (rol personalizado), se buscan permisos en role_permissions
+     * 3. Si el usuario tiene un role del sistema (user, personal, admin), se mapea a roles.name
+     *    con is_system_role=1 y se buscan sus permisos en role_permissions
+     * 
      * @param int $userId
      * @param string $permissionName
      * @return bool
@@ -95,12 +101,12 @@ class Permission extends Model {
             return false;
         }
         
-        // Si es root, tiene todos los permisos
+        // REGLA #1: Si es root, tiene todos los permisos (hardcoded, siempre true)
         if ($user->role === 'root') {
             return true;
         }
         
-        // Si tiene un rol personalizado (role_id), verificar permisos del rol
+        // REGLA #2: Si tiene un rol personalizado (role_id), verificar permisos del rol
         if ($user->role_id) {
             $sql = "
                 SELECT COUNT(*) as count
@@ -119,7 +125,7 @@ class Permission extends Model {
             return $result && $result->count > 0;
         }
         
-        // Si tiene un rol del sistema (user, personal, admin), verificar permisos predefinidos
+        // REGLA #3: Si tiene un rol del sistema (user, personal, admin), verificar permisos predefinidos
         if ($user->role) {
             // Obtener el ID del rol del sistema
             $stmt = $this->pdo->prepare("SELECT id FROM roles WHERE name = :role_name AND is_system_role = 1 LIMIT 1");

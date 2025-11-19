@@ -123,9 +123,10 @@ class RoleController extends Controller {
             exit();
         }
         
-        // Verificar que no sea un rol del sistema
+        // PROTECCIÓN: No se pueden editar los 4 roles del sistema (root, admin, personal, user)
+        // Estos roles son INTOCABLES: no se pueden eliminar, renombrar ni desactivar
         if ($role->is_system_role) {
-            $_SESSION['error'] = 'No se pueden editar los roles del sistema.';
+            $_SESSION['error'] = 'No se pueden editar los roles del sistema (root, admin, personal, user). Estos roles son INTOCABLES.';
             header('Location: ' . asset('roles'));
             exit();
         }
@@ -210,8 +211,10 @@ class RoleController extends Controller {
             exit();
         }
         
+        // PROTECCIÓN: No se pueden eliminar los 4 roles del sistema (root, admin, personal, user)
+        // Estos roles son INTOCABLES y fundamentales para el funcionamiento del sistema
         if ($role->is_system_role) {
-            $_SESSION['error'] = 'No se pueden eliminar los roles del sistema.';
+            $_SESSION['error'] = 'No se pueden eliminar los roles del sistema (root, admin, personal, user). Estos roles son INTOCABLES.';
             header('Location: ' . asset('roles'));
             exit();
         }
@@ -258,9 +261,12 @@ class RoleController extends Controller {
             exit();
         }
         
-        // Verificar que no sea un rol del sistema
+        // NOTA: Aunque se permite ver los permisos de roles del sistema,
+        // solo root puede modificarlos. Los 4 roles del sistema (root, admin, personal, user)
+        // están protegidos y no se pueden modificar sus permisos desde aquí.
+        // El rol 'root' siempre tiene TODOS los permisos por código, independientemente de la BD.
         if ($role->is_system_role) {
-            $_SESSION['error'] = 'No se pueden modificar los permisos de los roles del sistema.';
+            $_SESSION['error'] = 'No se pueden modificar los permisos de los roles del sistema. Use el panel root para configurar permisos de admin/personal/user.';
             header('Location: ' . asset('roles'));
             exit();
         }
