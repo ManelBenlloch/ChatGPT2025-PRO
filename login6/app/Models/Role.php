@@ -76,13 +76,14 @@ class Role extends Model {
      * @return bool
      */
     public function updateRole($roleId, $data) {
-        // Verificar que no sea un rol del sistema
+        // System roles cannot be modified
         if ($this->isSystemRole($roleId)) {
             return false;
         }
         
-        // No permitir cambiar is_system_role
+        // Do not allow changing is_system_role or name for any role
         unset($data['is_system_role']);
+        unset($data['name']);
         
         return $this->update($roleId, $data);
     }
@@ -170,11 +171,11 @@ class Role extends Model {
      * 
      * @param int $roleId
      * @param array $permissionIds
-     * @param int $grantedBy ID del usuario que otorga los permisos
+     * @param int $grantedBy ID del usuario que otorga los permisos (opcional)
      * @return bool
      */
     public function assignPermissions($roleId, $permissionIds, $grantedBy = null) {
-        // Verificar que no sea un rol del sistema
+        // System roles cannot have permissions modified (except via direct DB for initial setup)
         if ($this->isSystemRole($roleId)) {
             return false;
         }
@@ -189,13 +190,25 @@ class Role extends Model {
             
             // Insertar nuevos permisos
             if (!empty($permissionIds)) {
-                $stmt = $this->pdo->prepare("
-                    INSERT INTO role_permissions (role_id, permission_id, granted_by) 
-                    VALUES (?, ?, ?)
-                ");
-                
-                foreach ($permissionIds as $permissionId) {
-                    $stmt->execute([$roleId, $permissionId, $grantedBy]);
+                // Use different query based on whether granted_by is provided
+                if ($grantedBy !== null) {
+                    $stmt = $this->pdo->prepare("
+                        INSERT INTO role_permissions (role_id, permission_id, granted_by) 
+                        VALUES (?, ?, ?)
+                    ");
+                    
+                    foreach ($permissionIds as $permissionId) {
+                        $stmt->execute([$roleId, $permissionId, $grantedBy]);
+                    }
+                } else {
+                    $stmt = $this->pdo->prepare("
+                        INSERT INTO role_permissions (role_id, permission_id) 
+                        VALUES (?, ?)
+                    ");
+                    
+                    foreach ($permissionIds as $permissionId) {
+                        $stmt->execute([$roleId, $permissionId]);
+                    }
                 }
             }
             
