@@ -81,6 +81,11 @@ class Permission extends Model {
     /**
      * Verificar si un usuario tiene un permiso específico
      * 
+     * Checks permissions in this order:
+     * 1. Root users always have all permissions
+     * 2. User-specific permission overrides (user_permissions table)
+     * 3. Role-based permissions (via role_id or system role)
+     * 
      * @param int $userId
      * @param string $permissionName
      * @return bool
@@ -95,13 +100,49 @@ class Permission extends Model {
             return false;
         }
         
-        // Si es root, tiene todos los permisos
+        // Si es root, tiene todos los permisos (hardcoded, always true)
         if ($user->role === 'root') {
             return true;
         }
         
-        // Si tiene un rol personalizado (role_id), verificar permisos del rol
+        // Check for user-specific permission overrides (ABAC layer)
+        $stmt = $this->pdo->prepare("
+            SELECT up.is_granted
+            FROM user_permissions up
+            INNER JOIN permissions p ON up.permission_id = p.id
+            WHERE up.user_id = :user_id AND p.name = :permission_name
+            LIMIT 1
+        ");
+        $stmt->execute([
+            'user_id' => $userId,
+            'permission_name' => $permissionName
+        ]);
+        $override = $stmt->fetch(PDO::FETCH_OBJ);
+        
+        // If there's an explicit override, use it (1 = granted, 0 = revoked)
+        if ($override !== false) {
+            return (bool)$override->is_granted;
+        }
+        
+        // Determine the role ID to check
+        $roleId = null;
+        
+        // Si tiene un rol personalizado (role_id), usar ese
         if ($user->role_id) {
+            $roleId = $user->role_id;
+        } 
+        // Si tiene un rol del sistema (user, personal, admin), obtener su ID
+        elseif ($user->role) {
+            $stmt = $this->pdo->prepare("SELECT id FROM roles WHERE name = :role_name AND is_system_role = 1 LIMIT 1");
+            $stmt->execute(['role_name' => $user->role]);
+            $role = $stmt->fetch(PDO::FETCH_OBJ);
+            if ($role) {
+                $roleId = $role->id;
+            }
+        }
+        
+        // If we have a role ID, check role permissions
+        if ($roleId) {
             $sql = "
                 SELECT COUNT(*) as count
                 FROM role_permissions rp
@@ -111,38 +152,12 @@ class Permission extends Model {
             
             $stmt = $this->pdo->prepare($sql);
             $stmt->execute([
-                'role_id' => $user->role_id,
+                'role_id' => $roleId,
                 'permission_name' => $permissionName
             ]);
             
             $result = $stmt->fetch(PDO::FETCH_OBJ);
             return $result && $result->count > 0;
-        }
-        
-        // Si tiene un rol del sistema (user, personal, admin), verificar permisos predefinidos
-        if ($user->role) {
-            // Obtener el ID del rol del sistema
-            $stmt = $this->pdo->prepare("SELECT id FROM roles WHERE name = :role_name AND is_system_role = 1 LIMIT 1");
-            $stmt->execute(['role_name' => $user->role]);
-            $role = $stmt->fetch(PDO::FETCH_OBJ);
-            
-            if ($role) {
-                $sql = "
-                    SELECT COUNT(*) as count
-                    FROM role_permissions rp
-                    INNER JOIN permissions p ON rp.permission_id = p.id
-                    WHERE rp.role_id = :role_id AND p.name = :permission_name
-                ";
-                
-                $stmt = $this->pdo->prepare($sql);
-                $stmt->execute([
-                    'role_id' => $role->id,
-                    'permission_name' => $permissionName
-                ]);
-                
-                $result = $stmt->fetch(PDO::FETCH_OBJ);
-                return $result && $result->count > 0;
-            }
         }
         
         return false;
@@ -182,6 +197,7 @@ class Permission extends Model {
 
     /**
      * Obtener todos los permisos de un usuario
+     * Includes both role-based permissions and user-specific overrides
      * 
      * @param int $userId
      * @return array
@@ -201,6 +217,10 @@ class Permission extends Model {
             return $this->getAllPermissions();
         }
         
+        $permissions = [];
+        $permissionIds = [];
+        
+        // Get role-based permissions first
         $roleId = null;
         
         // Determinar el rol a usar
@@ -216,22 +236,55 @@ class Permission extends Model {
             }
         }
         
-        if (!$roleId) {
-            return [];
+        if ($roleId) {
+            // Obtener permisos del rol
+            $sql = "
+                SELECT p.*
+                FROM permissions p
+                INNER JOIN role_permissions rp ON p.id = rp.permission_id
+                WHERE rp.role_id = :role_id
+                ORDER BY p.category, p.display_name
+            ";
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute(['role_id' => $roleId]);
+            $permissions = $stmt->fetchAll(PDO::FETCH_OBJ);
+            
+            // Track permission IDs
+            foreach ($permissions as $perm) {
+                $permissionIds[$perm->id] = true;
+            }
         }
         
-        // Obtener permisos del rol
-        $sql = "
-            SELECT p.*
-            FROM permissions p
-            INNER JOIN role_permissions rp ON p.id = rp.permission_id
-            WHERE rp.role_id = :role_id
-            ORDER BY p.category, p.display_name
-        ";
+        // Apply user-specific permission overrides (ABAC layer)
+        $stmt = $this->pdo->prepare("
+            SELECT p.*, up.is_granted
+            FROM user_permissions up
+            INNER JOIN permissions p ON up.permission_id = p.id
+            WHERE up.user_id = :user_id
+        ");
+        $stmt->execute(['user_id' => $userId]);
+        $userOverrides = $stmt->fetchAll(PDO::FETCH_OBJ);
         
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['role_id' => $roleId]);
-        return $stmt->fetchAll(PDO::FETCH_OBJ);
+        foreach ($userOverrides as $override) {
+            if ($override->is_granted) {
+                // Grant permission (add if not already present)
+                if (!isset($permissionIds[$override->id])) {
+                    $permissions[] = $override;
+                    $permissionIds[$override->id] = true;
+                }
+            } else {
+                // Revoke permission (remove if present)
+                if (isset($permissionIds[$override->id])) {
+                    $permissions = array_filter($permissions, function($p) use ($override) {
+                        return $p->id != $override->id;
+                    });
+                    unset($permissionIds[$override->id]);
+                }
+            }
+        }
+        
+        return array_values($permissions);
     }
 
     /**

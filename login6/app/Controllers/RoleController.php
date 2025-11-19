@@ -83,12 +83,18 @@ class RoleController extends Controller {
         }
         
         // Crear el rol
-        $roleId = $this->roleModel->createRole([
+        $roleData = [
             'name' => $name,
             'display_name' => $display_name,
-            'description' => $description,
-            'created_by' => $_SESSION['user_id']
-        ]);
+            'description' => $description
+        ];
+        
+        // Add created_by if user_id is available
+        if (isset($_SESSION['user_id'])) {
+            $roleData['created_by'] = $_SESSION['user_id'];
+        }
+        
+        $roleId = $this->roleModel->createRole($roleData);
         
         if ($roleId) {
             // Registrar actividad
@@ -245,6 +251,7 @@ class RoleController extends Controller {
     
     /**
      * Gestionar permisos de un rol
+     * Permite ver permisos de roles del sistema (solo lectura) y editar permisos de roles personalizados
      */
     public function managePermissions($roleId) {
         // Verificar permiso
@@ -258,12 +265,8 @@ class RoleController extends Controller {
             exit();
         }
         
-        // Verificar que no sea un rol del sistema
-        if ($role->is_system_role) {
-            $_SESSION['error'] = 'No se pueden modificar los permisos de los roles del sistema.';
-            header('Location: ' . asset('roles'));
-            exit();
-        }
+        // Allow viewing system roles in read-only mode
+        // (The view will handle showing it as read-only based on is_system_role)
         
         // Obtener todos los permisos agrupados por categoría
         $permissionsByCategory = $this->permissionModel->getPermissionsByCategory();
@@ -272,6 +275,11 @@ class RoleController extends Controller {
         $rolePermissionIds = $this->roleModel->getPermissionIds($roleId);
         
         $this->view('roles/permissions', [
+            'role' => $role,
+            'permissionsByCategory' => $permissionsByCategory,
+            'rolePermissionIds' => $rolePermissionIds
+        ]);
+    }
             'role' => $role,
             'permissionsByCategory' => $permissionsByCategory,
             'rolePermissionIds' => $rolePermissionIds
